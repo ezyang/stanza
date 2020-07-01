@@ -29,7 +29,7 @@ def unpack_batch(batch, use_cuda):
 
 class Trainer(object):
     """ A trainer for training models. """
-    def __init__(self, args=None, vocab=None, emb_matrix=None, model_file=None, use_cuda=False):
+    def __init__(self, args=None, vocab=None, emb_matrix=None, model_file=None, use_cuda=False, debug=None):
         self.use_cuda = use_cuda
         if model_file is not None:
             # load everything from file
@@ -56,6 +56,7 @@ class Trainer(object):
                 self.model.cpu()
                 self.crit.cpu()
             self.optimizer = utils.get_optimizer(self.args['optim'], self.parameters, self.args['lr'])
+        self.debug = debug
 
     def update(self, batch, eval=False):
         inputs, orig_idx = unpack_batch(batch, self.use_cuda)
@@ -67,6 +68,8 @@ class Trainer(object):
             self.model.train()
             self.optimizer.zero_grad()
         log_probs, edit_logits = self.model(src, src_mask, tgt_in, pos)
+        if self.debug:
+            torch.save(log_probs, self.debug)
         if self.args.get('edit', False):
             assert edit_logits is not None
             loss = self.crit(log_probs.view(-1, self.vocab['char'].size), tgt_out.view(-1), \

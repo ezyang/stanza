@@ -27,6 +27,11 @@ from stanza.models.common.doc import *
 from stanza.utils.conll import CoNLL
 from stanza.models import _training_logging
 
+torch.manual_seed(1337)
+np.random.seed(1337)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, default='data/lemma', help='Directory for all lemma data.')
@@ -71,6 +76,7 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=1234)
     parser.add_argument('--cuda', type=bool, default=torch.cuda.is_available())
     parser.add_argument('--cpu', action='store_true', help='Ignore CUDA.')
+    parser.add_argument('--debug', type=str, help='File to dump output.')
     args = parser.parse_args()
     return args
 
@@ -120,7 +126,7 @@ def train(args):
 
     # start training
     # train a dictionary-based lemmatizer
-    trainer = Trainer(args=args, vocab=vocab, use_cuda=args['cuda'])
+    trainer = Trainer(args=args, vocab=vocab, use_cuda=args['cuda'], debug=args['debug'])
     print("[Training dictionary-based lemmatizer...]")
     trainer.train_dict(train_batch.doc.get([TEXT, UPOS, LEMMA]))
     print("Evaluating on dev set...")
