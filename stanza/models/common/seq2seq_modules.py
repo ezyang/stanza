@@ -10,6 +10,9 @@ import numpy as np
 
 import stanza.models.common.seq2seq_constant as constant
 
+from typing import Optional, Tuple
+from torch import Tensor
+
 logger = logging.getLogger('stanza')
 
 class BasicAttention(nn.Module):
@@ -25,7 +28,7 @@ class BasicAttention(nn.Module):
         self.tanh = nn.Tanh()
         self.sm = nn.Softmax(dim=1)
 
-    def forward(self, input, context, mask=None, attn_only=False):
+    def forward(self, input, context, mask: Optional[Tensor] = None, attn_only=False):
         """
         input: batch x dim
         context: batch x sourceL x dim
@@ -68,7 +71,7 @@ class SoftDotAttention(nn.Module):
         self.tanh = nn.Tanh()
         self.mask = None
 
-    def forward(self, input, context, mask=None, attn_only=False):
+    def forward(self, input, context, mask: Optional[Tensor] = None, attn_only: bool = False):
         """Propogate input through the network.
 
         input: batch x dim
@@ -85,8 +88,9 @@ class SoftDotAttention(nn.Module):
             attn.masked_fill_(mask, -constant.INFINITY_NUMBER)
 
         attn = self.sm(attn)
-        if attn_only:
-            return attn
+        assert not attn_only
+        #if attn_only:
+        #    return attn
 
         attn3 = attn.view(attn.size(0), 1, attn.size(1))  # batch x 1 x sourceL
 
@@ -210,7 +214,7 @@ class LSTMAttention(nn.Module):
             raise Exception("Unsupported LSTM attention type: {}".format(attn_type))
         logger.debug("Using {} attention for LSTM.".format(attn_type))
 
-    def forward(self, input, hidden, ctx, ctx_mask=None):
+    def forward(self, input, hidden: Tuple[Tensor, Tensor], ctx, ctx_mask: Optional[Tensor] = None):
         """Propogate input through the network."""
         if self.batch_first:
             input = input.transpose(0,1)
@@ -222,7 +226,7 @@ class LSTMAttention(nn.Module):
             hy, cy = hidden
             h_tilde, alpha = self.attention_layer(hy, ctx, mask=ctx_mask)
             output.append(h_tilde)
-        output = torch.cat(output, 0).view(input.size(0), *output[0].size())
+        output = torch.cat(output, 0) .view(input.size(0), output[0].size(0), output[0].size(1))
 
         if self.batch_first:
             output = output.transpose(0,1)

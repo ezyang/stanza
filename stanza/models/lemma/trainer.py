@@ -9,6 +9,7 @@ import logging
 import torch
 from torch import nn
 import torch.nn.init as init
+import torch.jit
 
 import stanza.models.common.seq2seq_constant as constant
 from stanza.models.common.seq2seq_model import Seq2SeqModel
@@ -29,8 +30,10 @@ def unpack_batch(batch, use_cuda):
 
 class Trainer(object):
     """ A trainer for training models. """
-    def __init__(self, args=None, vocab=None, emb_matrix=None, model_file=None, use_cuda=False, debug=None):
+    def __init__(self, args=None, vocab=None, emb_matrix=None, model_file=None, use_cuda=False, debug=None, script=False, trace=False):
         self.use_cuda = use_cuda
+        self.script = script
+        self.trace = trace
         if model_file is not None:
             # load everything from file
             self.load(model_file, use_cuda)
@@ -42,6 +45,9 @@ class Trainer(object):
             # dict-based components
             self.word_dict = dict()
             self.composite_dict = dict()
+        assert not (script and trace)
+        if script:
+            self.model = torch.jit.script(self.model)
         if not self.args['dict_only']:
             if self.args.get('edit', False):
                 self.crit = loss.MixLoss(self.vocab['char'].size, self.args['alpha'])
@@ -67,6 +73,9 @@ class Trainer(object):
         else:
             self.model.train()
             self.optimizer.zero_grad()
+        if self.trace:
+            self.model = torch.jit.trace(self.model, example_inputs=(src, src_mask, tgt_in, pos))
+            self.trace = False
         log_probs, edit_logits = self.model(src, src_mask, tgt_in, pos)
         if self.debug:
             torch.save(log_probs, self.debug)
@@ -209,7 +218,9 @@ class Trainer(object):
         self.word_dict, self.composite_dict = checkpoint['dicts']
         if not self.args['dict_only']:
             self.model = Seq2SeqModel(self.args, use_cuda=use_cuda)
-            self.model.load_state_dict(checkpoint['model'])
+            if self.script:
+                self.model = torch.jit.script(self.model)
+            self.model.load_state_dict(checkpoint['model'], strict=False)
         else:
             self.model = None
         self.vocab = MultiVocab.load_state_dict(checkpoint['vocab'])

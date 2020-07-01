@@ -77,6 +77,8 @@ def parse_args():
     parser.add_argument('--cuda', type=bool, default=torch.cuda.is_available())
     parser.add_argument('--cpu', action='store_true', help='Ignore CUDA.')
     parser.add_argument('--debug', type=str, help='File to dump output.')
+    parser.add_argument('--script', action='store_true', help='Script the model with TorchScript.')
+    parser.add_argument('--trace', action='store_true', help='Trace the model')
     args = parser.parse_args()
     return args
 
@@ -126,7 +128,7 @@ def train(args):
 
     # start training
     # train a dictionary-based lemmatizer
-    trainer = Trainer(args=args, vocab=vocab, use_cuda=args['cuda'], debug=args['debug'])
+    trainer = Trainer(args=args, vocab=vocab, use_cuda=args['cuda'], debug=args['debug'], script=args['script'], trace=args['trace'])
     print("[Training dictionary-based lemmatizer...]")
     trainer.train_dict(train_batch.doc.get([TEXT, UPOS, LEMMA]))
     print("Evaluating on dev set...")
@@ -213,7 +215,7 @@ def evaluate(args):
 
     # load model
     use_cuda = args['cuda'] and not args['cpu']
-    trainer = Trainer(model_file=model_file, use_cuda=use_cuda)
+    trainer = Trainer(model_file=model_file, use_cuda=use_cuda, script=args['script'], trace=args['trace'])
     loaded_args, vocab = trainer.args, trainer.vocab
 
     for k in args:

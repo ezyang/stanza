@@ -13,6 +13,9 @@ from stanza.models.common import utils
 from stanza.models.common.seq2seq_modules import LSTMAttention
 from stanza.models.common.beam import Beam
 
+from typing import List, Optional
+from torch import Tensor
+
 logger = logging.getLogger('stanza')
 
 class Seq2SeqModel(nn.Module):
@@ -105,24 +108,26 @@ class Seq2SeqModel(nn.Module):
 
     def zero_state(self, inputs):
         batch_size = inputs.size(0)
-        h0 = torch.zeros(self.encoder.num_layers*2, batch_size, self.enc_hidden_dim, requires_grad=False)
-        c0 = torch.zeros(self.encoder.num_layers*2, batch_size, self.enc_hidden_dim, requires_grad=False)
+        h0 = torch.zeros(self.encoder.num_layers*2, batch_size, self.enc_hidden_dim)
+        c0 = torch.zeros(self.encoder.num_layers*2, batch_size, self.enc_hidden_dim)
         if self.use_cuda:
             return h0.cuda(), c0.cuda()
         return h0, c0
 
     def encode(self, enc_inputs, lens):
         """ Encode source sequence. """
-        self.h0, self.c0 = self.zero_state(enc_inputs)
+        r = self.zero_state(enc_inputs)
+        h0 = r[0]
+        c0 = r[1]
 
         packed_inputs = nn.utils.rnn.pack_padded_sequence(enc_inputs, lens, batch_first=True)
-        packed_h_in, (hn, cn) = self.encoder(packed_inputs, (self.h0, self.c0))
+        packed_h_in, (hn, cn) = self.encoder(packed_inputs, (h0, c0))
         h_in, _ = nn.utils.rnn.pad_packed_sequence(packed_h_in, batch_first=True)
         hn = torch.cat((hn[-1], hn[-2]), 1)
         cn = torch.cat((cn[-1], cn[-2]), 1)
         return h_in, (hn, cn)
 
-    def decode(self, dec_inputs, hn, cn, ctx, ctx_mask=None):
+    def decode(self, dec_inputs, hn, cn, ctx, ctx_mask: Optional[Tensor] = None):
         """ Decode a step, based on context encoding and source context states."""
         dec_hidden = (hn, cn)
         h_out, dec_hidden = self.decoder(dec_inputs, dec_hidden, ctx, ctx_mask)
@@ -133,7 +138,7 @@ class Seq2SeqModel(nn.Module):
         log_probs = self.get_log_prob(decoder_logits)
         return log_probs, dec_hidden
 
-    def forward(self, src, src_mask, tgt_in, pos=None):
+    def forward(self, src, src_mask, tgt_in, pos: Optional[Tensor] = None):
         # prepare for encoder/decoder
         batch_size = src.size(0)
         enc_inputs = self.emb_drop(self.embedding(src))
@@ -144,9 +149,12 @@ class Seq2SeqModel(nn.Module):
             enc_inputs = torch.cat([pos_inputs.unsqueeze(1), enc_inputs], dim=1)
             pos_src_mask = src_mask.new_zeros([batch_size, 1])
             src_mask = torch.cat([pos_src_mask, src_mask], dim=1)
-        src_lens = list(src_mask.data.eq(0).long().sum(1))
+        src_lens = src_mask.data.eq(0).long().sum(1)
 
-        h_in, (hn, cn) = self.encode(enc_inputs, src_lens)
+        r = self.encode(enc_inputs, src_lens)
+        h_in = r[0]
+        hn = r[1][0]
+        cn = r[1][1]
 
         if self.edit:
             edit_logits = self.edit_clf(hn)
@@ -208,6 +216,7 @@ class Seq2SeqModel(nn.Module):
                         output_seqs[i].append(token)
         return output_seqs, edit_logits
 
+    @torch.jit.ignore  # too hard
     def predict(self, src, src_mask, pos=None, beam_size=5):
         """ Predict with beam search. """
         if beam_size == 1:
